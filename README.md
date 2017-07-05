@@ -1,4 +1,4 @@
-This repository contains a code to reassemble RAID6 with 7 disks and one missing disk from a broken 3ware 9650SE-raid controller. 
+This repository contains a code to reassemble RAID6 with 7 disks (where one disk is missing) from a broken 3ware 9650SE-raid controller. 
 
 How to use:
 
