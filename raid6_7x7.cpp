@@ -6,6 +6,7 @@
 #include <string>
 #include <cstring>
 #include <omp.h>
+#include <cmath>
 
 using namespace std;
 
@@ -148,6 +149,7 @@ int main(int argc, char** argv)
   cout << "number of missing disks=" << nmissing << endl;
   
   vector<ifstream> files(ndisks);
+  long int totblocksperdisk;
   for(int i=0;i<ndisks;i++)
   {
     if(!missing[i]){
@@ -156,6 +158,13 @@ int main(int argc, char** argv)
         cout << "could not open " << fnames[i] << endl;
         return 1;
       }
+      long int fsize = files[i].tellg();
+      files[i].seekg( 0, std::ios::end );
+      fsize = files[i].tellg() - fsize;
+      cout << "size of file " << fnames[i] << " is " << fsize << " bytes=" << fsize/blocksize << " blocks" << endl;
+      totblocksperdisk=fsize/blocksize;
+      files[i].close();
+      files[i].open(fnames[i].data(),ios::in | ios::binary);
     }
   }
 
@@ -174,7 +183,7 @@ int main(int argc, char** argv)
   double ts=omp_get_wtime();
   //benchmark read ops
 
-  if(true){
+  if(false){
     int nb=10000;
     //individial disks
     for(int i=0;i<ndisks;i++)
@@ -213,15 +222,18 @@ int main(int argc, char** argv)
 
   //allocate read caches
   int nbcache=10000; // 0.6GB
+  bool usecache=true;
 
 
   char*** cache = new char**[ndisks];
-  for(int i=0;i<ndisks;i++)
-  {
-    cache[i] = new char*[nbcache];
-    for(int j=0;j<nbcache;j++)
+  if(usecache){
+    for(int i=0;i<ndisks;i++)
     {
-      cache[i][j] = new char[blocksize];
+      cache[i] = new char*[nbcache];
+      for(int j=0;j<nbcache;j++)
+      {
+        cache[i][j] = new char[blocksize];
+      }
     }
   }
  
@@ -236,14 +248,35 @@ int main(int argc, char** argv)
     for(int i=0;i<ndisks;i++)
     {
       if(!missing[i]){
-        if(blocksin%nbcache==0){
-          for(int j=0;j<nbcache;j++)
-          {
-            files[i].read (cache[i][j], blocksize);
+        if(usecache && blocksin%nbcache==0){
+          if(2*nbcache+blocksin>=totblocksperdisk){
+            usecache=false;
+          }else{
+            for(int j=0;j<nbcache;j++)
+            {
+              files[i].read (cache[i][j], blocksize);
+              if(!files[i]){
+                cout << "block=" << blockscount << endl;
+                cout << "blockrow=" << blockrow << endl;
+                cout << "blocksin=" << blocksin << endl;
+                cout << "i=" << i << endl;
+                return 1;
+              }
+            }
           }
         }
-        memcpy(data[i],cache[i][blocksin%nbcache],blocksize);
-        //files[i].read (data[i], blocksize);
+        if(usecache){
+          memcpy(data[i],cache[i][blocksin%nbcache],blocksize);
+        }else{
+          files[i].read (data[i], blocksize);
+          if(!files[i]){
+            cout << "block=" << blockscount << endl;
+            cout << "blockrow=" << blockrow << endl;
+            cout << "blocksin=" << blocksin << endl;
+            cout << "i=" << i << endl;
+            return 1;
+          }
+        }
         //cout << files[i].tellg() << endl;
       }
     }
@@ -298,7 +331,9 @@ int main(int argc, char** argv)
     if(blockscount%10000==0){
 
       double tn=omp_get_wtime();
-      cout << 1.0/((tn-ts)/(blockscount-bs))*65536.0/1024.0/1024.0 << " MB/s, \t  wrote " << blockscount << " blocks " <<  (double)blockscount*65536.0/1024.0/1024.0 << " MB" << endl;
+      double ttot=totblocksperdisk*(ndisks-2)/(double)blockscount*(tn-ts);
+      double tremain=ttot-(tn-ts);
+      cout << 1.0/((tn-ts)/(blockscount-bs))*65536.0/pow(1024.0,2) << " MB/s, \t  wrote " << blockscount << " of " << totblocksperdisk*(ndisks-2) << " blocks, " <<  (double)blockscount*65536.0/pow(1024.0,3) << " GB. remaining time= " << tremain/3600.0 << " h" << endl;
       //ts=tn;
       //bs=blockscount;
       bs=0;
