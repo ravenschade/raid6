@@ -1,3 +1,15 @@
+/*
+losetup /dev/loop0 block0
+losetup /dev/loop1 block1
+losetup /dev/loop2 block2
+losetup /dev/loop3 block3
+(
+    echo "0 1 linear /dev/loop0 0"
+    echo "1 1 linear /dev/loop1 0"
+    echo "2 1 linear /dev/loop2 0"
+    echo "3 1 linear /dev/loop3 0"
+} | dmsetup create test
+*/
 #include <fstream>
 #include <iterator>
 #include <algorithm>
@@ -168,10 +180,6 @@ int main(int argc, char** argv)
     }
   }
 
-  //open destination
-  string destname(argv[ndisks+1]);
-  cout << "output=" << destname << endl;
-  ofstream dest(destname,ios::out | ios::binary);
 
 
   char** data = new char*[ndisks];
@@ -221,9 +229,9 @@ int main(int argc, char** argv)
   int blockrow=0;
 
   //allocate read caches
-  int nbcache=10000; // 0.6GB
+  int nbcache=2000; // 120MB
   bool usecache=true;
-
+  int nsplit=100000; //6GB
 
   char*** cache = new char**[ndisks];
   if(usecache){
@@ -236,6 +244,15 @@ int main(int argc, char** argv)
       }
     }
   }
+  
+  //open destination
+  string destname(argv[ndisks+1]);
+  cout << "output=" << destname << endl;
+
+  int outid=0;
+  string destnamei=destname+"_"+to_string(outid);
+  cout << "output=" << destnamei << endl;
+  ofstream dest(destnamei,ios::out | ios::binary);
  
   ts=omp_get_wtime();
  
@@ -328,15 +345,28 @@ int main(int argc, char** argv)
     if(blockrow>=ndisks){
       blockrow=0;
     }
+    if((blockscount)%nsplit==0){
+      dest.close();
+      
+      //outid++;
+      
+      destnamei=destname+"_"+to_string(outid);
+      cout << "output=" << destnamei << endl;
+
+      dest.open(destnamei,ios_base::app| ios::out | ios::binary);
+
+//      ts=omp_get_wtime();
+//      bs=blockscount;
+    }
     if(blockscount%10000==0){
 
       double tn=omp_get_wtime();
-      double ttot=totblocksperdisk*(ndisks-2)/(double)blockscount*(tn-ts);
+      double ttot=totblocksperdisk*(ndisks-2)/(double)(blockscount-bs)*(tn-ts);
       double tremain=ttot-(tn-ts);
       cout << 1.0/((tn-ts)/(blockscount-bs))*65536.0/pow(1024.0,2) << " MB/s, \t  wrote " << blockscount << " of " << totblocksperdisk*(ndisks-2) << " blocks, " <<  (double)blockscount*65536.0/pow(1024.0,3) << " GB. remaining time= " << tremain/3600.0 << " h" << endl;
       //ts=tn;
       //bs=blockscount;
-      bs=0;
+      //bs=0;
     }
   }
   return 0;	
